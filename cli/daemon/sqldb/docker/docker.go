@@ -197,7 +197,7 @@ func (d *Driver) clusterStatus(ctx context.Context, id sqldb.ClusterID) (status 
 		} else if err != nil {
 			// Docker returns a non-zero exit code if the container does not exist.
 			// Try to tell this apart from an error by parsing the output.
-			if bytes.Contains(out, []byte("No such container")) {
+			if bytes.Contains(out, []byte("No such container")) || bytes.Contains(out, []byte("no such container")){
 				continue
 			}
 			return nil, "", errors.Wrapf(err, "docker container inspect failed: %s", out)
@@ -230,7 +230,7 @@ func (d *Driver) clusterStatus(ctx context.Context, id sqldb.ClusterID) (status 
 		return nil, "", errors.Wrap(err, "parse `docker container inspect` response")
 	}
 	for _, c := range resp {
-		if c.Name == "/"+containerName {
+		if c.Name == "/"+containerName || c.Name == containerName {
 			status := &sqldb.ClusterStatus{Status: sqldb.Stopped, Config: &sqldb.ConnConfig{
 				// Defaults if we don't find anything else configured.
 				Superuser: sqldb.Role{
@@ -245,7 +245,11 @@ func (d *Driver) clusterStatus(ctx context.Context, id sqldb.ClusterID) (status 
 			}
 			ports := c.NetworkSettings.Ports["5432/tcp"]
 			if len(ports) > 0 {
-				status.Config.Host = ports[0].HostIP + ":" + ports[0].HostPort
+				hip := "127.0.0.1"
+				if ports[0].HostIP != "" {
+					hip = ports[0].HostIP
+				}
+				status.Config.Host = hip + ":" + ports[0].HostPort
 			}
 
 			// Read the Postgres config from the docker container's environment.
@@ -352,6 +356,8 @@ func ImageExists(ctx context.Context) (ok bool, err error) {
 	case err == nil:
 		return true, nil
 	case bytes.Contains(out, []byte("No such image")):
+		return false, nil
+	case bytes.Contains(out, []byte("image not known")):
 		return false, nil
 	default:
 		return false, errors.WithStack(err)
